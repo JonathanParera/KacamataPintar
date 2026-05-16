@@ -313,9 +313,35 @@ def thread_sensor():
 # ============================================================
 # ROUTES
 # ============================================================
-@app.route('/')
-def index():
-    return render_template('index.html')
+@app.route('/upload_frame', methods=['POST'])
+def upload_frame():
+    global jarak_saat_ini
+    try:
+        # Ambil data jarak dari URL (contoh: /upload_frame?jarak=45)
+        jarak_param = request.args.get('jarak')
+        if jarak_param and jarak_param.lstrip('-').isdigit():
+            with jarak_lock:
+                jarak_saat_ini = int(jarak_param)
+
+        # Ambil file gambar murni dari body request
+        img_bytes = request.data
+        if not img_bytes:
+            return jsonify({'error': 'Tidak ada gambar'}), 400
+
+        # Konversi byte gambar menjadi array untuk YOLO
+        img = Image.open(io.BytesIO(img_bytes)).convert('RGB')
+        frame = np.array(img)
+
+        # Masukkan ke antrean agar diproses oleh thread YOLO
+        if frame_queue.full():
+            try: frame_queue.get_nowait()
+            except queue.Empty: pass
+        frame_queue.put_nowait(frame)
+
+        return jsonify({'status': 'ok'}), 200
+    except Exception as e:
+        print(f"[UPLOAD ERROR] {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/update_ip', methods=['POST'])
 def update_ip():
@@ -397,9 +423,7 @@ def start_background_threads():
     mulai_sesi()
 
     threads = [
-        threading.Thread(target=thread_kamera,              daemon=True),
         threading.Thread(target=thread_yolo_and_broadcast,  daemon=True),
-        threading.Thread(target=thread_sensor,              daemon=True),
         threading.Thread(target=update_prediksi_background, daemon=True),
     ]
     for t in threads:
