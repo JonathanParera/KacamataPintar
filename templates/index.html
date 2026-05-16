@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kacamata AI — Live Feed</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Segoe UI',sans-serif; background:#0f0f0f; color:#fff; min-height:100vh; }
+
+        header {
+            background:#1a1a2e; padding:14px 20px;
+            display:flex; align-items:center; justify-content:space-between;
+            border-bottom:2px solid #00ff88;
+        }
+        header h1 { font-size:1.1rem; color:#00ff88; }
+        .dash-btn {
+            padding:6px 14px; background:transparent; color:#00ff88;
+            border:1px solid #00ff88; border-radius:8px;
+            text-decoration:none; font-size:0.8rem;
+        }
+
+        .status-bar {
+            display:flex; gap:8px; padding:8px 16px;
+            background:#111; flex-wrap:wrap;
+        }
+        .badge {
+            padding:3px 10px; border-radius:20px;
+            font-size:0.75rem; font-weight:bold;
+        }
+        .connected    { background:#00ff8822; color:#00ff88; border:1px solid #00ff88; }
+        .disconnected { background:#ff444422; color:#ff4444; border:1px solid #ff4444; }
+        .warning      { background:#ff880022; color:#ff8800; border:1px solid #ff8800; }
+        .safe         { background:#00ff8822; color:#00ff88; border:1px solid #00ff88; }
+
+        .main-grid {
+            display:grid; grid-template-columns:1fr 300px;
+            gap:12px; padding:12px; max-width:1100px; margin:0 auto;
+        }
+        @media(max-width:768px){ .main-grid{ grid-template-columns:1fr; } }
+
+        .video-box {
+            background:#111; border-radius:12px;
+            overflow:hidden; border:2px solid #222; position:relative;
+        }
+        .video-box img { width:100%; display:block; }
+        .video-overlay {
+            position:absolute; top:10px; left:10px;
+            background:#000000bb; padding:5px 12px;
+            border-radius:8px; font-size:0.85rem;
+        }
+        .waiting {
+            display:flex; align-items:center; justify-content:center;
+            height:280px; color:#555; flex-direction:column; gap:10px;
+        }
+        .spinner {
+            width:36px; height:36px; border:3px solid #222;
+            border-top-color:#00ff88; border-radius:50%;
+            animation:spin 1s linear infinite;
+        }
+        @keyframes spin { to{ transform:rotate(360deg); } }
+
+        .panel { display:flex; flex-direction:column; gap:10px; }
+        .card {
+            background:#111; border-radius:12px;
+            padding:14px; border:1px solid #222;
+        }
+        .card h3 {
+            font-size:0.75rem; color:#666;
+            text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;
+        }
+
+        .jarak-display {
+            font-size:2.5rem; font-weight:bold;
+            text-align:center; padding:8px; border-radius:8px; transition:all 0.3s;
+        }
+        .aman   { color:#00ff88; background:#00ff8811; }
+        .bahaya { color:#ff4444; background:#ff444411; animation:pulse 0.5s infinite alternate; }
+        @keyframes pulse { from{opacity:1} to{opacity:0.6} }
+
+        .deteksi-list { display:flex; flex-direction:column; gap:5px; }
+        .deteksi-item {
+            display:flex; justify-content:space-between;
+            align-items:center; padding:7px 10px;
+            background:#1a1a1a; border-radius:8px; font-size:0.82rem;
+        }
+        .conf-bar { height:3px; background:#222; border-radius:2px; margin-top:3px; }
+        .conf-fill { height:100%; background:#00ff88; border-radius:2px; transition:width 0.3s; }
+
+        .peringatan-box {
+            background:#ff440011; border:1px solid #333;
+            border-radius:8px; padding:10px;
+            font-size:0.85rem; color:#ff6666; min-height:50px;
+        }
+
+        input[type="text"] {
+            width:100%; padding:7px 10px;
+            background:#1a1a1a; border:1px solid #333;
+            border-radius:8px; color:#fff; font-size:0.85rem; margin-bottom:6px;
+        }
+        .btn {
+            width:100%; padding:8px; border:none; border-radius:8px;
+            cursor:pointer; font-weight:bold; font-size:0.85rem;
+        }
+        .btn-primary { background:#00ff88; color:#000; }
+
+        .tts-row {
+            display:flex; align-items:center;
+            justify-content:space-between; padding:8px;
+            background:#1a1a1a; border-radius:8px;
+        }
+        .switch { position:relative; width:44px; height:24px; }
+        .switch input { opacity:0; width:0; height:0; }
+        .slider {
+            position:absolute; inset:0; background:#333;
+            border-radius:24px; cursor:pointer; transition:0.3s;
+        }
+        .slider:before {
+            content:''; position:absolute;
+            width:18px; height:18px; left:3px; bottom:3px;
+            background:#fff; border-radius:50%; transition:0.3s;
+        }
+        input:checked + .slider { background:#00ff88; }
+        input:checked + .slider:before { transform:translateX(20px); }
+
+        .log-box {
+            background:#0a0a0a; border-radius:8px; padding:8px;
+            height:120px; overflow-y:auto;
+            font-size:0.72rem; font-family:monospace; color:#00ff88;
+        }
+        .log-item { padding:1px 0; border-bottom:1px solid #111; }
+        .log-item.warn  { color:#ff8800; }
+        .log-item.error { color:#ff4444; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1>👓 Kacamata AI — Live Feed</h1>
+    </div>
+    <a href="#" id="dash-link" class="dash-btn">📊 Dashboard Prediksi</a>
+</header>
+
+<div class="status-bar">
+    <span id="badge-server" class="badge disconnected">● Terputus</span>
+    <span id="badge-jarak"  class="badge safe">● Aman</span>
+    <span id="badge-tts"    class="badge connected">● Suara Aktif</span>
+    <span id="badge-fps"    class="badge connected">● 0 FPS</span>
+</div>
+
+<div class="main-grid">
+
+    <!-- Video -->
+    <div class="video-box">
+        <div class="waiting" id="waiting-screen">
+            <div class="spinner"></div>
+            <span>Menunggu kamera...</span>
+        </div>
+        <img id="video-feed" src="" style="display:none;" alt="Live Feed">
+        <div class="video-overlay" id="video-overlay">Menunggu...</div>
+    </div>
+
+    <!-- Panel -->
+    <div class="panel">
+
+        <div class="card">
+            <h3>📡 Jarak Sensor</h3>
+            <div class="jarak-display aman" id="jarak-display">--- cm</div>
+        </div>
+
+        <div class="card">
+            <h3>⚠️ Peringatan</h3>
+            <div class="peringatan-box" id="peringatan-box">Tidak ada peringatan</div>
+        </div>
+
+        <div class="card">
+            <h3>🔍 Objek Terdeteksi</h3>
+            <div class="deteksi-list" id="deteksi-list">
+                <div style="color:#555;font-size:0.8rem">Belum ada deteksi</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>🔊 Suara</h3>
+            <div class="tts-row">
+                <span style="font-size:0.85rem">Suara Peringatan</span>
+                <label class="switch">
+                    <input type="checkbox" id="tts-toggle" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div style="margin-top:6px;font-size:0.75rem;color:#555">
+                Suara keluar dari perangkat ini
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>⚙️ Konfigurasi IP</h3>
+            <input type="text" id="ip-input" placeholder="IP ESP32 (cth: 192.168.x.x)">
+            <button class="btn btn-primary" onclick="updateIP()">Update IP ESP32</button>
+        </div>
+
+        <div class="card">
+            <h3>📋 Log</h3>
+            <div class="log-box" id="log-box"></div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+const socket    = io();
+let ttsAktif    = true;
+let frameCount  = 0;
+let lastFpsTime = Date.now();
+let lastSpeak   = {};
+
+// Link ke dashboard prediksi (Vercel)
+// Ganti dengan URL Vercel kamu
+document.getElementById('dash-link').href = 'https://GANTI_URL_VERCEL';
+
+socket.on('connect', () => {
+    setBadge('badge-server', 'connected', '● Terhubung');
+    addLog('Terhubung ke server');
+});
+socket.on('disconnect', () => {
+    setBadge('badge-server', 'disconnected', '● Terputus');
+    addLog('Koneksi terputus!', 'error');
+});
+socket.on('status', d => addLog(d.message));
+
+socket.on('update', data => {
+    // Video
+    const img     = document.getElementById('video-feed');
+    const waiting = document.getElementById('waiting-screen');
+    img.src = 'data:image/jpeg;base64,' + data.frame;
+    img.style.display = 'block';
+    waiting.style.display = 'none';
+
+    // FPS
+    frameCount++;
+    const now = Date.now();
+    if (now - lastFpsTime >= 1000) {
+        document.getElementById('badge-fps').textContent = `● ${frameCount} FPS`;
+        frameCount  = 0;
+        lastFpsTime = now;
+    }
+
+    // Jarak
+    const jarak   = data.jarak;
+    const jarakEl = document.getElementById('jarak-display');
+    jarakEl.textContent = jarak === 999 ? '--- cm' : `${jarak} cm`;
+    jarakEl.className   = 'jarak-display ' + (data.bahaya ? 'bahaya' : 'aman');
+    setBadge('badge-jarak',
+        data.bahaya ? 'warning' : 'safe',
+        data.bahaya ? '● Bahaya!' : '● Aman'
+    );
+    document.getElementById('video-overlay').textContent =
+        `Jarak: ${jarak === 999 ? '-' : jarak} cm`;
+
+    // Deteksi
+    const listEl = document.getElementById('deteksi-list');
+    listEl.innerHTML = data.deteksi.length === 0
+        ? '<div style="color:#555;font-size:0.8rem">Tidak ada objek</div>'
+        : data.deteksi.map(d => `
+            <div class="deteksi-item">
+                <div>
+                    <div>${d.nama}</div>
+                    <div class="conf-bar">
+                        <div class="conf-fill" style="width:${d.conf}%"></div>
+                    </div>
+                </div>
+                <span style="color:#00ff88;font-weight:bold">${d.conf}%</span>
+            </div>
+        `).join('');
+
+    // Peringatan
+    const peringEl = document.getElementById('peringatan-box');
+    if (data.peringatan.length > 0) {
+        peringEl.innerHTML     = data.peringatan.map(p => `<div>⚠️ ${p}</div>`).join('');
+        peringEl.style.borderColor = '#ff4444';
+
+        if (ttsAktif) {
+            data.peringatan.forEach(teks => {
+                const now = Date.now();
+                if (!lastSpeak[teks] || now - lastSpeak[teks] > 4000) {
+                    lastSpeak[teks] = now;
+                    bicara(teks);
+                }
+            });
+        }
+    } else {
+        peringEl.textContent       = 'Tidak ada peringatan';
+        peringEl.style.borderColor = '#333';
+    }
+});
+
+function bicara(teks) {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const ucapan   = new SpeechSynthesisUtterance(teks);
+    ucapan.lang    = 'id-ID';
+    ucapan.rate    = 1.0;
+    ucapan.pitch   = 1.0;
+    ucapan.volume  = 1.0;
+    const voices   = window.speechSynthesis.getVoices();
+    const suaraID  = voices.find(v => v.lang === 'id-ID' || v.lang === 'id');
+    if (suaraID) ucapan.voice = suaraID;
+    window.speechSynthesis.speak(ucapan);
+    addLog(`🔊 "${teks}"`, 'warn');
+}
+
+function setBadge(id, type, text) {
+    const el      = document.getElementById(id);
+    el.className  = `badge ${type}`;
+    el.textContent = text;
+}
+
+function addLog(msg, type = '') {
+    const box  = document.getElementById('log-box');
+    const time = new Date().toLocaleTimeString('id-ID');
+    const div  = document.createElement('div');
+    div.className  = `log-item ${type}`;
+    div.textContent = `[${time}] ${msg}`;
+    box.prepend(div);
+    while (box.children.length > 50) box.removeChild(box.lastChild);
+}
+
+function updateIP() {
+    const ip = document.getElementById('ip-input').value.trim();
+    if (!ip) return;
+    fetch('/update_ip', {
+        method : 'POST',
+        headers: {'Content-Type':'application/json'},
+        body   : JSON.stringify({ip})
+    })
+    .then(r => r.json())
+    .then(d => addLog(`IP diupdate: ${d.ip}`));
+}
+
+document.getElementById('tts-toggle').addEventListener('change', function() {
+    ttsAktif = this.checked;
+    setBadge('badge-tts',
+        ttsAktif ? 'connected' : 'disconnected',
+        ttsAktif ? '● Suara Aktif' : '● Suara Mati'
+    );
+});
+
+window.speechSynthesis.onvoiceschanged = () => {
+    const voices = window.speechSynthesis.getVoices();
+    const hasID  = voices.some(v => v.lang === 'id-ID');
+    addLog(`Suara: ${voices.length} tersedia (ID: ${hasID ? 'Ya' : 'Tidak'})`);
+};
+</script>
+</body>
+</html>

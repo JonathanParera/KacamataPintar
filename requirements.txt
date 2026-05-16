@@ -1,0 +1,14 @@
+flask
+flask-socketio
+ultralytics
+opencv-python-headless
+Pillow
+numpy
+requests
+websocket-client
+python-engineio
+python-socketio
+eventlet
+gunicorn
+supabase
+python-dotenv
