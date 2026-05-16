@@ -24,7 +24,7 @@ app.config['SECRET_KEY'] = 'kacamata_tunanetra_2024'
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # ================= KONFIGURASI =================
-IP_KAMERA     = os.getenv('IP_KAMERA', '192.168.137.182')
+IP_KAMERA     = os.getenv('IP_KAMERA', '192.168.137.244')
 URL_KAMERA    = f'http://{IP_KAMERA}:81/stream'
 URL_WEBSOCKET = f'ws://{IP_KAMERA}:82'
 CONF_THRESH   = 0.6
